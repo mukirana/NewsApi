@@ -1,27 +1,21 @@
 package com.example.HackerNews.Service;
 
+import com.example.HackerNews.Constant;
+import com.example.HackerNews.Exception.ApiException;
+import com.example.HackerNews.Exception.ApiRequestException;
 import com.example.HackerNews.Helper;
 import com.example.HackerNews.Model.Comment;
 import com.example.HackerNews.Model.HackerNewsStory;
 import com.example.HackerNews.Model.story;
 import com.example.HackerNews.Repository.RedisRepository;
+import com.example.HackerNews.Repository.StoryRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cache.annotation.Cacheable;
-import org.springframework.data.mongodb.core.aggregation.ArrayOperators;
 import org.springframework.http.ResponseEntity;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
-import redis.clients.jedis.Response;
-
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
-
-import static com.example.HackerNews.Constant.baseUrl;
 
 @Service
 public class StoryService {
@@ -31,9 +25,32 @@ public class StoryService {
     RedisRepository redisRepository;
     @Autowired
     RestTemplate restTemplate;
+    @Autowired
+    StoryRepository storyRepository;
 
 
-    public  List<story> getSortedStoriesByScore(List<Long> data,int len) throws ExecutionException, InterruptedException {
+
+    public List<story> getTopStories() throws ApiRequestException {
+        ResponseEntity<Long[]> result = restTemplate.getForEntity(Constant.topStoriesUrl, Long[].class);
+        if(Objects.isNull((result))){
+            throw new ApiRequestException("Error from Server Side");
+        }
+        List<Long> list = Arrays.asList(result.getBody());
+        List<story> topTenStory= getSortedStoriesByScore(list);
+        for (story st: topTenStory) {
+            List<story> ob = redisRepository.findById(st.getId());
+            if(ob==null){
+                storyRepository.save(st);
+                List<story> storyList = new ArrayList<>();
+                storyList.add(st);
+                redisRepository.save(st.getId(),storyList,1, TimeUnit.DAYS);
+            }
+        }
+        redisRepository.saveWithValue(Constant.Stories,topTenStory,10,TimeUnit.MINUTES);
+        return topTenStory;
+    }
+
+    public  List<story> getSortedStoriesByScore(List<Long> data) {
         List<story> list = new ArrayList<>();
         List<CompletableFuture<story>> pageContentFutures = data.stream()
                 .map(story -> helper.getTopSortedCity(story))
@@ -55,16 +72,11 @@ public class StoryService {
     }
 
     public List<Comment> getTopComments(String id){
-        String url = baseUrl+"item/"+id+".json";
+        String url = Constant.itemsUrl+id+Constant.json;
         ResponseEntity<HackerNewsStory> result = restTemplate.getForEntity(url, HackerNewsStory.class);
         HackerNewsStory response = result.getBody();
         List<Long> kids = response.getKids();
         List<Comment> comments = new ArrayList<>();
-
-//        List<CompletableFuture<Integer>> pageContentFutures = kids.stream()
-//                .map(data -> getCount(data,0))
-//                .collect(Collectors.toList());
-
 
         for (Long value: kids) {
             Comment comment = new Comment();
@@ -74,28 +86,15 @@ public class StoryService {
         }
         return comments;
     }
-//    @Async
-//    public int getCount(long data){
-//        String url = baseUrl+"item/"+data+".json";
-//      //  ResponseEntity<HackerNewsStory> result = restTemplate.getForEntity(url, HackerNewsStory.class);
-//        CompletableFuture<HackerNewsStory> result = Cal(url,HackerNewsStory.class);
-//        HackerNewsStory response = result.join();
-//        List<Long> kids = response.getKids();
-//        if(kids==null){
-//            return 0;
-//        }
-//        int count =0;
-//        for (Long value: kids) {
-//            count= 1+getCount(value);
-//        }
-//        return count;
-//    }
-//    @Async
-//    public CompletableFuture<HackerNewsStory> Cal(String url,Object obj){
-//        return CompletableFuture.supplyAsync(() -> {
-//            ResponseEntity<HackerNewsStory> result = restTemplate.getForEntity(url, HackerNewsStory.class);
-//            return result.getBody();
-//        });
-//    }
+
+    public List<story> getAllPreviousData() throws ApiRequestException
+    {
+            List<story> previousData = storyRepository.findAll();
+            if(Objects.isNull(previousData) || previousData.size()==0){
+                throw new ApiRequestException("Data not found");
+            }
+            return previousData;
+
+    }
 
 }

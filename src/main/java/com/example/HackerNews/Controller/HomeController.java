@@ -1,5 +1,7 @@
 package com.example.HackerNews.Controller;
 
+import com.example.HackerNews.Constant;
+import com.example.HackerNews.Exception.ApiRequestException;
 import com.example.HackerNews.Helper;
 import com.example.HackerNews.Model.Comment;
 import com.example.HackerNews.Model.story;
@@ -7,6 +9,7 @@ import com.example.HackerNews.Repository.RedisRepository;
 import com.example.HackerNews.Repository.StoryRepository;
 import com.example.HackerNews.Service.StoryService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -33,40 +36,27 @@ public class HomeController {
     @Autowired
     RestTemplate restTemplate;
 
-    @GetMapping("/home")
-    public List getMessage() throws ExecutionException, InterruptedException {
-        List<story> cachedTopStory = redisRepository.findByValue("Stories");
+    @GetMapping("/topStories")
+    public ResponseEntity<List> getMessage() throws ExecutionException, InterruptedException, ApiRequestException {
+        List<story> cachedTopStory = redisRepository.findByValue(Constant.Stories);
         if(cachedTopStory!=null && cachedTopStory.size()!=0){
-            return cachedTopStory;
+            return new ResponseEntity<>(cachedTopStory,HttpStatus.OK);
         }
-        ResponseEntity<Long[]> result = restTemplate.getForEntity(baseUrl+"topstories.json", Long[].class);
-        List<Long> list = Arrays.asList(result.getBody());
-
-        List<story> topTenStory= storyService.getSortedStoriesByScore(list,Math.min(10,list.size()));
-
-        for (story st: topTenStory) {
-             List<story> ob = redisRepository.findById(st.getId());
-            if(ob==null){
-                storyRepository.save(st);
-                List<story> storyList = new ArrayList<>();
-                storyList.add(st);
-                redisRepository.save(st.getId(),storyList,1, TimeUnit.DAYS);
-            }
-        }
-        redisRepository.saveWithValue("Stories",topTenStory,10,TimeUnit.MINUTES);
-        return topTenStory;
+        List<story> topStory = storyService.getTopStories();
+        return new ResponseEntity<>(topStory,HttpStatus.OK);
 
     }
 
     @GetMapping("/comments/{id}")
-    public List<Comment> getTopComments(@PathVariable("id")String id){
-       // ResponseEntity<story> givenStory = restTemplate.getForEntity(baseUrl+"item/"+id+".json", story.class);
-       return storyService.getTopComments(id);
+    public ResponseEntity<List<Comment>> getTopComments(@PathVariable("id")String id){
+       return  new ResponseEntity<>(storyService.getTopComments(id), HttpStatus.OK);
 
     }
 
     @GetMapping("/pastStories")
-    public List<story> getOldStories(){
-        return storyRepository.findAll();
+    public ResponseEntity<List<story>> getOldStories() throws ApiRequestException {
+        List<story> allStories = storyService.getAllPreviousData();
+
+        return new ResponseEntity<>(allStories,HttpStatus.OK);
     }
 }
