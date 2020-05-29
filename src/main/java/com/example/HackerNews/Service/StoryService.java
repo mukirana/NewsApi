@@ -62,6 +62,7 @@ public class StoryService {
                 .collect(Collectors.toList());
         CompletableFuture<List<story>> completeData = helper.getDataList(pageContentFutures);
         list = completeData.join();
+        list = helper.removeNulls(list);
         Collections.sort(list);
         for (story st: list) {
             List<story> storyList = new ArrayList<>();
@@ -70,6 +71,31 @@ public class StoryService {
         }
 
         return list.stream().limit(10).collect(Collectors.toList());
+    }
+
+
+    public List<HackerNewsStory> getAllParentCommentsData(List<Long> kids){
+        List<CompletableFuture<HackerNewsStory>> pageContentFutures = kids.stream()
+                .map(comment ->  helper.getDataAsync(comment,Constant.itemsUrl,HackerNewsStory.class,Constant.Comment+comment))
+                .collect(Collectors.toList());
+
+        CompletableFuture<List<HackerNewsStory>> completeData = helper.getDataList(pageContentFutures);
+      return  completeData.join();
+    }
+
+    public  List<User> getUserList( List<HackerNewsStory> listHackerNewsStory){
+        List<CompletableFuture<User>> userDetail = listHackerNewsStory.stream()
+                .map( hackerNewsStory->
+                {
+                    if(hackerNewsStory.getBy()==null){
+                        return null;
+                    }
+                    return helper.DataAsync(hackerNewsStory.getBy(), Constant.userUrl, User.class, hackerNewsStory.getBy());
+                })
+                .collect(Collectors.toList());
+        userDetail = helper.removeNulls(userDetail);
+        CompletableFuture<List<User>> completeUserData = helper.getDataList(userDetail);
+         return completeUserData.join();
     }
 
 
@@ -83,19 +109,10 @@ public class StoryService {
 
 
         // to get the list of parent comments......
-        List<CompletableFuture<HackerNewsStory>> pageContentFutures = kids.stream()
-                .map(comment ->  helper.getDataAsync(comment,Constant.itemsUrl,HackerNewsStory.class,Constant.Comment+comment))
-                .collect(Collectors.toList());
+        List<HackerNewsStory> listHackerNewsStory= getAllParentCommentsData(kids);
+         listHackerNewsStory = helper.removeNulls(listHackerNewsStory);
 
-
-        CompletableFuture<List<HackerNewsStory>> completeData = helper.getDataList(pageContentFutures);
-
-        List<HackerNewsStory> listHackerNewsStory= completeData.join();
-
-         listHackerNewsStory = listHackerNewsStory.stream()
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
-
+         // Caching of parent comment data
         for (HackerNewsStory comment: listHackerNewsStory) {
             List<HackerNewsStory> storyList = new ArrayList<>();
             storyList.add(comment);
@@ -103,29 +120,12 @@ public class StoryService {
         }
 
         // to get the  list of Users
-        List<CompletableFuture<User>> userDetail = listHackerNewsStory.stream()
-                .map( hackerNewsStory->
-                {
-                    if(hackerNewsStory.getBy()==null){
-                       return null;
-                    }
-                    return helper.DataAsync(hackerNewsStory.getBy(), Constant.userUrl, User.class, hackerNewsStory.getBy());
-                })
-                .collect(Collectors.toList());
-
-         userDetail = userDetail.stream()
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
-
-        CompletableFuture<List<User>> completeUserData = helper.getDataList(userDetail);
-
         List<User> userData = new ArrayList<>();
-        userData = completeUserData.join();
+        userData = getUserList(listHackerNewsStory);
+        userData = helper.removeNulls(userData);
 
-        userData = userData.stream()
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
 
+      // caching of user data
         for (User user: userData) {
             if(user==null){
                 continue;
@@ -136,6 +136,7 @@ public class StoryService {
         }
 
 
+        // after getting both user data and comment data then combine them
         HashMap<String,Long> hm = new HashMap<>();
         for (User user:userData) {
             if(user==null){

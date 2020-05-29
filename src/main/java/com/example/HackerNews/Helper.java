@@ -88,6 +88,12 @@ public class Helper {
         return allCommentWithUserDetail;
     }
 
+    public <T> List<T> removeNulls(List<T> list){
+       return list.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+    }
+
 
 }
 
