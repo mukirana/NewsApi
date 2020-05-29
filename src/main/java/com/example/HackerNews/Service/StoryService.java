@@ -6,6 +6,7 @@ import com.example.HackerNews.Exception.ApiRequestException;
 import com.example.HackerNews.Helper;
 import com.example.HackerNews.Model.Comment;
 import com.example.HackerNews.Model.HackerNewsStory;
+import com.example.HackerNews.Model.User;
 import com.example.HackerNews.Model.story;
 import com.example.HackerNews.Repository.RedisRepository;
 import com.example.HackerNews.Repository.StoryRepository;
@@ -36,9 +37,9 @@ public class StoryService {
             throw new ApiRequestException("Error from Server Side");
         }
         List<Long> list = Arrays.asList(result.getBody());
-        List<story> topTenStory= getSortedStoriesByScore(list);
+        List<story> topTenStory=   getSortedStoriesByScore(list);
         for (story st: topTenStory) {
-            List<story> ob = redisRepository.findById(st.getId());
+            List<story> ob = redisRepository.find(st.getId());
             if(ob==null){
                 storyRepository.save(st);
                 List<story> storyList = new ArrayList<>();
@@ -46,46 +47,114 @@ public class StoryService {
                 redisRepository.save(st.getId(),storyList,1, TimeUnit.DAYS);
             }
         }
-        redisRepository.saveWithValue(Constant.Stories,topTenStory,10,TimeUnit.MINUTES);
+        redisRepository.save(Constant.Stories,topTenStory,10,TimeUnit.MINUTES);
         return topTenStory;
     }
 
+
+
+
     public  List<story> getSortedStoriesByScore(List<Long> data) {
         List<story> list = new ArrayList<>();
+        String Url = Constant.itemsUrl+data.toString()+Constant.json;
         List<CompletableFuture<story>> pageContentFutures = data.stream()
-                .map(story -> helper.getTopSortedCity(story))
+                .map(val -> helper.getDataAsync(val,Constant.itemsUrl,story.class,Constant.Stories+val))
                 .collect(Collectors.toList());
-
-        CompletableFuture<Void> allFutures = CompletableFuture.allOf(
-                pageContentFutures.toArray(new CompletableFuture[pageContentFutures.size()])
-        );
-
-        CompletableFuture<List<story>> allPageContentsFuture = allFutures.thenApply(v -> {
-            return pageContentFutures.stream()
-                    .map(pageContentFuture -> pageContentFuture.join())
-                    .collect(Collectors.toList());
-        });
-        list = allPageContentsFuture.join();
+        CompletableFuture<List<story>> completeData = helper.getDataList(pageContentFutures);
+        list = completeData.join();
         Collections.sort(list);
+        for (story st: list) {
+            List<story> storyList = new ArrayList<>();
+            storyList.add(st);
+            redisRepository.save(Constant.Stories+st.getId(),storyList,1, TimeUnit.DAYS);
+        }
 
         return list.stream().limit(10).collect(Collectors.toList());
     }
 
+
+
     public List<Comment> getTopComments(String id){
         String url = Constant.itemsUrl+id+Constant.json;
+        // to get the given story data........
         ResponseEntity<HackerNewsStory> result = restTemplate.getForEntity(url, HackerNewsStory.class);
         HackerNewsStory response = result.getBody();
         List<Long> kids = response.getKids();
-        List<Comment> comments = new ArrayList<>();
 
-        for (Long value: kids) {
-            Comment comment = new Comment();
-            comment.setId(value);
-            comment.setChildCommentCount( helper.getCount(value));
-            comments.add(comment);
+
+        // to get the list of parent comments......
+        List<CompletableFuture<HackerNewsStory>> pageContentFutures = kids.stream()
+                .map(comment ->  helper.getDataAsync(comment,Constant.itemsUrl,HackerNewsStory.class,Constant.Comment+comment))
+                .collect(Collectors.toList());
+
+
+        CompletableFuture<List<HackerNewsStory>> completeData = helper.getDataList(pageContentFutures);
+
+        List<HackerNewsStory> listHackerNewsStory= completeData.join();
+
+         listHackerNewsStory = listHackerNewsStory.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        for (HackerNewsStory comment: listHackerNewsStory) {
+            List<HackerNewsStory> storyList = new ArrayList<>();
+            storyList.add(comment);
+            redisRepository.save(Constant.Comment+comment.getId(),storyList,1, TimeUnit.DAYS);
         }
-        return comments;
+
+        // to get the  list of Users
+        List<CompletableFuture<User>> userDetail = listHackerNewsStory.stream()
+                .map( hackerNewsStory->
+                {
+                    if(hackerNewsStory.getBy()==null){
+                       return null;
+                    }
+                    return helper.DataAsync(hackerNewsStory.getBy(), Constant.userUrl, User.class, hackerNewsStory.getBy());
+                })
+                .collect(Collectors.toList());
+
+         userDetail = userDetail.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        CompletableFuture<List<User>> completeUserData = helper.getDataList(userDetail);
+
+        List<User> userData = new ArrayList<>();
+        userData = completeUserData.join();
+
+        userData = userData.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        for (User user: userData) {
+            if(user==null){
+                continue;
+            }
+            List<User> userList = new ArrayList<>();
+            userList.add(user);
+            redisRepository.save(user.getId(),userList,1, TimeUnit.DAYS);
+        }
+
+
+        HashMap<String,Long> hm = new HashMap<>();
+        for (User user:userData) {
+            if(user==null){
+                continue;
+            }
+            hm.put(user.getId(),user.getCreated());
+        }
+
+
+
+        // It will combine the data of user and comments and then return  collection in sorted order.
+        List<Comment> allCommentWithUserDetailList = helper.getCombinedCommentAndUserData(listHackerNewsStory,hm);
+
+        Collections.sort(allCommentWithUserDetailList);
+
+       return allCommentWithUserDetailList.stream().limit(10).collect(Collectors.toList());
     }
+
+
 
     public List<story> getAllPreviousData() throws ApiRequestException
     {

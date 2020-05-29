@@ -4,6 +4,7 @@ import com.example.HackerNews.Constant;
 import com.example.HackerNews.Exception.ApiRequestException;
 import com.example.HackerNews.Helper;
 import com.example.HackerNews.Model.Comment;
+import com.example.HackerNews.Model.HackerNewsStory;
 import com.example.HackerNews.Model.story;
 import com.example.HackerNews.Repository.RedisRepository;
 import com.example.HackerNews.Repository.StoryRepository;
@@ -38,7 +39,7 @@ public class HomeController {
 
     @GetMapping("/topStories")
     public ResponseEntity<List> getMessage() throws ExecutionException, InterruptedException, ApiRequestException {
-        List<story> cachedTopStory = redisRepository.findByValue(Constant.Stories);
+        List<story> cachedTopStory = redisRepository.find(Constant.Stories);
         if(cachedTopStory!=null && cachedTopStory.size()!=0){
             return new ResponseEntity<>(cachedTopStory,HttpStatus.OK);
         }
@@ -49,6 +50,10 @@ public class HomeController {
 
     @GetMapping("/comments/{id}")
     public ResponseEntity<List<Comment>> getTopComments(@PathVariable("id")String id){
+        List<Comment> cachedTopStory = redisRepository.find(Constant.Comment+id);
+        if(cachedTopStory!=null && cachedTopStory.size()!=0){
+            return new ResponseEntity<>(cachedTopStory,HttpStatus.OK);
+        }
        return  new ResponseEntity<>(storyService.getTopComments(id), HttpStatus.OK);
 
     }
@@ -56,7 +61,6 @@ public class HomeController {
     @GetMapping("/pastStories")
     public ResponseEntity<List<story>> getOldStories() throws ApiRequestException {
         List<story> allStories = storyService.getAllPreviousData();
-
         return new ResponseEntity<>(allStories,HttpStatus.OK);
     }
 }

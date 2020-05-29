@@ -19,19 +19,13 @@ public class RedisRepository {
         this.valueOperations = this.redisTemplate.opsForValue();
     }
 
-    public <T> void saveWithValue(String value,List<T> sto,int duration,TimeUnit time){
-        valueOperations.set(value,sto,duration,time);
-    }
-    public <T> T findByValue(String id){
-        return (T)valueOperations.get(id);
-    }
 
-      public <T> void save(Long id,List<T> sto,int duration,TimeUnit time){
+      public <T,U> void save(U id,List<T> sto,int duration,TimeUnit time){
         valueOperations.set(id,sto,duration, time);
      }
 
 
-    public <T> T findById(Long id){
+    public <T,U> T find(U id){
         return (T)valueOperations.get(id);
     }
 

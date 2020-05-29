@@ -7,10 +7,15 @@ import java.io.Serializable;
 
 @Getter
 @Setter
-public class Comment implements Serializable {
-    private long id;
+public class Comment implements Serializable, Comparable<Comment>{
+    private  Long id;
     private int childCommentCount;
     private String text;
     private String user;
-    private String userAge;
+    private Long userAge;
+    // compareTo override for comparable
+    @Override
+    public int compareTo(Comment comment) {
+        return comment.getChildCommentCount()-this.getChildCommentCount();
+    }
 }
